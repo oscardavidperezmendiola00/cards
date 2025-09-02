@@ -2,6 +2,7 @@ import type { GetServerSideProps } from 'next';
 import { isAdminFromSsr } from '@/lib/auth';        // cambia a ruta relativa si no usas "@"
 import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 
 // Carga cliente de los charts (sin SSR)
 const StackedBars = dynamic(() => import('@/components/StackedBars'), { ssr: false });
@@ -70,10 +71,10 @@ export default function AdminHome() {
     <main className="min-h-screen bg-slate-950 text-slate-100 p-6">
       <header className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <nav className="flex gap-4 text-sm opacity-80">
-          <a href="/admin/profiles">Perfiles</a>
-          <a href="/api/admin/logout">Salir</a>
-        </nav>
+<nav className="flex gap-4 text-sm opacity-80">
+  <Link href="/admin/profiles" className="underline-offset-2 hover:underline">Perfiles</Link>
+  <Link href="/api/admin/logout" className="underline-offset-2 hover:underline">Salir</Link>
+</nav>
       </header>
 
       {/* Filtro */}

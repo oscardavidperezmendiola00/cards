@@ -2,6 +2,8 @@ import type { GetServerSideProps } from 'next';
 import { isAdminFromSsr } from '@/lib/auth';
 import { getSupabaseAdmin } from '@/lib/db';
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+
 
 type Row = {
   id: string;
@@ -108,9 +110,9 @@ export default function Profiles({ ownerId }: { ownerId: string }) {
       <header className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Perfiles</h1>
         <nav className="flex gap-4 text-sm opacity-80">
-          <a href="/admin">Dashboard</a>
-          <a href="/api/admin/logout">Salir</a>
-        </nav>
+  <Link href="/admin" className="underline-offset-2 hover:underline">Dashboard</Link>
+  <Link href="/api/admin/logout" className="underline-offset-2 hover:underline">Salir</Link>
+</nav>
       </header>
 
       <section className="bg-black/40 p-4 rounded-xl mb-6">
