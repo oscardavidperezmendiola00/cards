@@ -18,13 +18,7 @@ export default function ProfileCard({
         <div className="flex flex-col items-center text-center space-y-3">
           <div className="w-28 h-28 rounded-full overflow-hidden ring-2 ring-white/10">
             {avatar_url ? (
-              <img
-                src={avatar_url}
-                alt={name}
-                className="w-28 h-28 object-cover"
-                loading="lazy"
-                referrerPolicy="no-referrer"
-              />
+              <img src={avatar_url} alt={name} className="w-28 h-28 object-cover" loading="lazy" referrerPolicy="no-referrer"/>
             ) : (
               <div className="w-full h-full bg-white/5" />
             )}
