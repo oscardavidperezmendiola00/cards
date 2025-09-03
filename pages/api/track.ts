@@ -1,46 +1,43 @@
-// pages/api/track.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
-import crypto from 'crypto';
 import { getSupabaseAdmin } from '@/lib/db';
 
-const hashIp = (ip?: string | string[] | null) =>
-  ip ? crypto.createHash('sha256').update(Array.isArray(ip) ? ip[0] : ip).digest('hex') : null;
+type TrackBody = {
+  slug?: string;
+  action?: string;
+  ref?: string | null;
+  ua?: string | null;
+};
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const body = (req.body || {}) as {
-    slug?: string;
-    action?: string;
-    ref?: string | null;
-    ua?: string | null;
-    country?: string | null;
-    device?: string | null;
-  };
+  const supabase = getSupabaseAdmin();
 
-  if (!body.slug) return res.status(400).json({ ok: false, error: 'slug required' });
-
+  let body: TrackBody = {};
   try {
-    const supabase = getSupabaseAdmin();
-
-    const ipHeader = (req.headers['x-forwarded-for'] as string | string[] | undefined) ?? null;
-    const ipRaw = ipHeader || (req.socket?.remoteAddress ?? null);
-    const ipHash = hashIp(ipRaw);
-
-    const { error } = await supabase.from('clicks').insert({
-      slug: body.slug,
-      action: body.action || 'view',
-      ref: body.ref ?? (req.headers.referer as string) ?? null,
-      ua: body.ua ?? (req.headers['user-agent'] as string) ?? null,
-      ip_hash: ipHash,
-      country: body.country ?? null,
-      device: body.device ?? null,
-    });
-
-    if (error) return res.status(500).json({ ok: false, error: error.message });
-    res.json({ ok: true });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    res.status(500).json({ ok: false, error: msg });
+    // Si Vercel ya parseó JSON, vendrá como objeto;
+    // si llega texto (por algún proxy), lo intentamos parsear.
+    if (typeof req.body === 'string') {
+      body = JSON.parse(req.body);
+    } else {
+      body = req.body as TrackBody;
+    }
+  } catch {
+    return res.status(400).json({ ok: false, error: 'invalid body' });
   }
+
+  const slug = body.slug?.trim();
+  const action = body.action?.trim() || 'view';
+  if (!slug) return res.status(400).json({ ok: false, error: 'slug required' });
+
+  const { error } = await supabase.from('clicks').insert({
+    slug,
+    action,
+    ref: body.ref || null,
+    ua: body.ua || null,
+    // ts se asigna con DEFAULT now() en la tabla
+  });
+
+  if (error) return res.status(400).json({ ok: false, error: error.message });
+  return res.json({ ok: true });
 }
