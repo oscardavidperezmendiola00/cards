@@ -1,180 +1,163 @@
 import type { GetServerSideProps } from 'next';
-import Link from 'next/link';
+import { isAdminFromSsr } from '@/lib/auth';        // cambia a ruta relativa si no usas "@"
+import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useState } from 'react';
-import { isAdminFromSsr } from '@/lib/auth';
-import StackedBars, { type DayRow } from '@/components/StackedBars';
-import PieActions, { type Slice } from '@/components/PieActions';
+import Link from 'next/link';
 
-type Totals = {
-  view?: number;
-  'btn:whatsapp'?: number;
-  'btn:email'?: number;
-  'btn:phone'?: number;
-  'btn:site'?: number;
+// Carga cliente de los charts (sin SSR)
+const StackedBars = dynamic(() => import('@/components/StackedBars'), { ssr: false });
+const PieActions  = dynamic(() => import('@/components/PieActions'),  { ssr: false });
+
+type Stats = {
+  ok: true;
+  profiles: number;
+  clicks: number;
+  clicks7d: number;
+  byDay: Record<string, Record<string, number>>;
+  totals: Record<string, number>;
 };
 
-type ApiStats = {
-  ok?: boolean;
-  totals?: Totals;
-  // La API podría devolver "series" con claves libres; aquí lo tipamos de forma segura:
-  series?: Array<Record<string, string | number>>;
-  error?: string;
-};
+type Row = { id: string; slug: string; name: string };
 
 const ACTION_KEYS = ['view', 'btn:whatsapp', 'btn:email', 'btn:phone', 'btn:site'] as const;
 
-function fmt(n: number | undefined) {
-  return (n ?? 0).toLocaleString();
+function makeSeries(byDay: Stats['byDay']) {
+  const days = Object.keys(byDay).sort();
+  return days.map(d => {
+    const m = byDay[d] || {};
+    const obj: Record<string, number | string> = { date: d };
+    let total = 0;
+    for (const k of ACTION_KEYS) {
+      const v = m[k] ?? 0;
+      obj[k] = v;
+      total += v;
+    }
+    obj.total = total;
+    return obj;
+  });
 }
 
-export default function AdminDashboard() {
-  const [loading, setLoading] = useState(true);
-  const [totals, setTotals] = useState<Totals>({});
-  const [series, setSeries] = useState<Array<Record<string, string | number>>>([]);
+export default function AdminHome() {
+  const [profiles, setProfiles] = useState<Row[]>([]);
+  const [slug, setSlug] = useState<string>('ALL');
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [recent, setRecent] = useState<Array<{ ts: string; action: string; slug: string; ref: string | null; country: string | null; device: string | null }>>([]);
 
+  // cargar lista de perfiles
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        // Ajusta esta ruta si tu endpoint se llama distinto
-        const r = await fetch('/api/admin/stats');
-        const j: ApiStats = await r.json();
-        if (!mounted) return;
-        if (!r.ok || !j.ok) {
-          // Si no existe el endpoint, deja datos vacíos
-          setTotals({});
-          setSeries([]);
-        } else {
-          setTotals(j.totals || {});
-          setSeries(Array.isArray(j.series) ? j.series : []);
-        }
-      } catch {
-        if (!mounted) return;
-        setTotals({});
-        setSeries([]);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
+    fetch('/api/admin/profiles')
+      .then(r => r.json())
+      .then(j => setProfiles(j.data || []))
+      .catch(() => setProfiles([]));
   }, []);
 
-  // --- FIX: normaliza series a DayRow[] (con 'date' obligatorio) ---
-  const seriesNorm: DayRow[] = useMemo(() => {
-    const raw = series ?? [];
-    return raw
-      .map((r) => {
-        const date =
-          String((r.date ?? r.d ?? r.day ?? r.fecha ?? '')).trim();
-        const row: DayRow = {
-          date,
-          view: Number(r['view'] ?? 0),
-          'btn:whatsapp': Number(r['btn:whatsapp'] ?? 0),
-          'btn:email': Number(r['btn:email'] ?? 0),
-          'btn:phone': Number(r['btn:phone'] ?? 0),
-          'btn:site': Number(r['btn:site'] ?? 0),
-        };
-        return row;
-      })
-      .filter((row) => row.date.length > 0);
-  }, [series]);
+  // cargar stats y últimos clics según filtro
+  useEffect(() => {
+    const qs = slug === 'ALL' ? '' : `?slug=${encodeURIComponent(slug)}`;
+    fetch(`/api/stats${qs}`).then(r => r.json()).then(setStats).catch(()=>setStats(null));
+    fetch(`/api/admin/clicks${qs}&limit=100`).then(r => r.json()).then(j => setRecent(j.data || [])).catch(()=>setRecent([]));
+  }, [slug]);
 
-  // Pie: totales por acción → slices
-  const pieData: Slice[] = useMemo(() => {
-    return ACTION_KEYS.map((k) => ({
-      name: k,
-      value: Number(totals[k] ?? 0),
-    })).filter((s) => s.value > 0);
-  }, [totals]);
+  const series = useMemo(() => (stats ? makeSeries(stats.byDay) : []), [stats]);
 
-  const totalViews = Number(totals.view ?? 0);
-  const totalClicks =
-    Number(totals['btn:whatsapp'] ?? 0) +
-    Number(totals['btn:email'] ?? 0) +
-    Number(totals['btn:phone'] ?? 0) +
-    Number(totals['btn:site'] ?? 0);
+  const pieData = useMemo(() => {
+    if (!stats) return [];
+    return Object.keys(stats.totals)
+      .map(name => ({ name, value: stats.totals[name] ?? 0 }))
+      .filter(d => d.value > 0);
+  }, [stats]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-6">
       <header className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold">Dashboard Trafika</h1>
-          <p className="text-sm opacity-70">Resumen de actividad y accesos rápidos</p>
-        </div>
-        <nav className="flex gap-3 text-sm">
-          <Link href="/" className="px-3 py-2 rounded bg-white/5 border border-white/10 hover:bg-white/10 transition">
-            Inicio
-          </Link>
-          <Link href="/admin/profiles" className="px-3 py-2 rounded bg-emerald-500 text-slate-900 font-medium hover:brightness-95 transition">
-            Perfiles
-          </Link>
-          <Link href="/api/admin/logout" className="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700 transition">
-            Salir
-          </Link>
-        </nav>
+        <h1 className="text-2xl font-semibold">Dashboard</h1>
+<nav className="flex gap-4 text-sm opacity-80">
+  <Link href="/admin/profiles" className="underline-offset-2 hover:underline">Perfiles</Link>
+  <Link href="/api/admin/logout" className="underline-offset-2 hover:underline">Salir</Link>
+</nav>
       </header>
 
-      {/* KPIs */}
-      <section className="grid md:grid-cols-3 gap-4 mb-6">
-        <article className="rounded-2xl p-5 bg-white/[0.03] border border-white/10">
-          <div className="text-sm opacity-75">Vistas</div>
-          <div className="mt-1 text-3xl font-semibold">{fmt(totalViews)}</div>
-        </article>
-        <article className="rounded-2xl p-5 bg-white/[0.03] border border-white/10">
-          <div className="text-sm opacity-75">Clics</div>
-          <div className="mt-1 text-3xl font-semibold">{fmt(totalClicks)}</div>
-        </article>
-        <article className="rounded-2xl p-5 bg-white/[0.03] border border-white/10">
-          <div className="text-sm opacity-75">Acciones destacadas</div>
-          <div className="mt-2 flex gap-2 text-xs">
-            <span className="px-2 py-1 rounded bg-emerald-500/20 text-emerald-300">
-              WA {fmt(totals['btn:whatsapp'])}
-            </span>
-            <span className="px-2 py-1 rounded bg-sky-500/20 text-sky-300">
-              Email {fmt(totals['btn:email'])}
-            </span>
-            <span className="px-2 py-1 rounded bg-amber-500/20 text-amber-300">
-              Llamar {fmt(totals['btn:phone'])}
-            </span>
-            <span className="px-2 py-1 rounded bg-cyan-500/20 text-cyan-300">
-              Sitio {fmt(totals['btn:site'])}
-            </span>
-          </div>
-        </article>
+      {/* Filtro */}
+      <section className="bg-black/40 p-4 rounded-xl mb-6 flex items-center gap-3">
+        <label className="text-sm opacity-80">Ver estadísticas de:</label>
+        <select
+          className="p-2 rounded bg-slate-900 border border-slate-700"
+          value={slug}
+          onChange={e => setSlug(e.target.value)}
+        >
+          <option value="ALL">Todos</option>
+          {profiles.map(p => (
+            <option key={p.id} value={p.slug}>{p.name} — {p.slug}</option>
+          ))}
+        </select>
       </section>
 
-      {/* Series por día */}
-      <section className="grid md:grid-cols-3 gap-4">
-        <div className="md:col-span-2">
-          <div className="rounded-2xl p-4 bg-white/[0.03] border border-white/10">
-            <div className="mb-2 text-sm opacity-80">Actividad (últimos días)</div>
-            {loading ? (
-              <div className="opacity-70 text-sm">Cargando…</div>
-            ) : seriesNorm.length === 0 ? (
-              <div className="opacity-70 text-sm">Aún no hay datos.</div>
-            ) : (
-              <StackedBars data={seriesNorm} />
-            )}
-          </div>
-        </div>
+      {/* KPIs */}
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Kpi title="Perfiles" value={stats?.profiles ?? '…'} />
+        <Kpi title="Clicks totales" value={stats?.clicks ?? '…'} />
+        <Kpi title="Vistas últimos 7 días" value={stats?.clicks7d ?? '…'} />
+      </section>
 
-        {/* Distribución por acción */}
-        <div>
-          <div className="rounded-2xl p-4 bg-white/[0.03] border border-white/10">
-            <div className="mb-2 text-sm opacity-80">Distribución por acción</div>
-            {loading ? (
-              <div className="opacity-70 text-sm">Cargando…</div>
-            ) : pieData.length === 0 ? (
-              <div className="opacity-70 text-sm">Sin clics aún.</div>
-            ) : (
-              <PieActions data={pieData} />
-            )}
-          </div>
+      {/* Barras apiladas */}
+      <section className="mt-8 bg-black/40 p-4 rounded-xl">
+        <h2 className="font-medium">Actividad por día</h2>
+        <div className="mt-4" style={{ width: '100%', height: 340 }}>
+          {series.length === 0 ? (
+            <div className="opacity-70 text-sm">Aún no hay datos.</div>
+          ) : (
+            <StackedBars data={series} />
+          )}
+        </div>
+      </section>
+
+      {/* Pie por acción */}
+      <section className="mt-8 bg-black/40 p-4 rounded-xl">
+        <h2 className="font-medium">Distribución por acción</h2>
+        <div className="mt-4" style={{ width: '100%', height: 280 }}>
+          {pieData.length === 0 ? (
+            <div className="opacity-70 text-sm">Sin datos.</div>
+          ) : (
+            <PieActions data={pieData} />
+          )}
+        </div>
+      </section>
+
+      {/* Últimos clics */}
+      <section className="mt-8 bg-black/40 p-4 rounded-xl">
+        <h2 className="font-medium mb-3">Últimos clics</h2>
+        <div className="overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="text-left opacity-70">
+              <tr><th>Fecha</th><th>Slug</th><th>Acción</th><th>País</th><th>Dispositivo</th><th>Ref</th></tr>
+            </thead>
+            <tbody>
+              {recent.length === 0 ? (
+                <tr><td colSpan={6} className="p-3 opacity-70">Sin registros</td></tr>
+              ) : recent.map((r, i) => (
+                <tr key={i} className="border-t border-slate-800">
+                  <td className="p-2">{new Date(r.ts).toLocaleString()}</td>
+                  <td className="p-2">{r.slug}</td>
+                  <td className="p-2">{r.action}</td>
+                  <td className="p-2">{r.country ?? '-'}</td>
+                  <td className="p-2">{r.device ?? '-'}</td>
+                  <td className="p-2 max-w-[340px] truncate" title={r.ref ?? ''}>{r.ref ?? '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
     </main>
+  );
+}
+
+function Kpi({ title, value }: { title: string; value: number | string }) {
+  return (
+    <div className="rounded-xl bg-black/40 p-4">
+      <div className="text-sm opacity-70">{title}</div>
+      <div className="text-2xl font-semibold mt-2">{value}</div>
+    </div>
   );
 }
 

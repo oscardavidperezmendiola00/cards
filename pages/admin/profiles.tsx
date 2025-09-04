@@ -2,7 +2,6 @@ import type { GetServerSideProps } from 'next';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { isAdminFromSsr } from '@/lib/auth';
-import AvatarUploader from '@/components/AvatarUploader';
 
 type Row = {
   id: string;
@@ -163,23 +162,7 @@ export default function AdminProfiles() {
           <input className="p-3 rounded bg-slate-900 border border-slate-700" placeholder="Empresa" value={form.company ?? ''} onChange={e=>setForm(f=>({ ...f, company: e.target.value || null }))} />
           <input className="p-3 rounded bg-slate-900 border border-slate-700" placeholder="Email" value={form.email ?? ''} onChange={e=>setForm(f=>({ ...f, email: e.target.value || null }))} />
           <input className="p-3 rounded bg-slate-900 border border-slate-700" placeholder="WhatsApp (521...)" value={form.whatsapp ?? ''} onChange={e=>setForm(f=>({ ...f, whatsapp: e.target.value || null }))} />
-
-          {/* Campo Avatar URL + Uploader */}
-          <div className="md:col-span-2 grid gap-2">
-            <input
-              className="p-3 rounded bg-slate-900 border border-slate-700"
-              placeholder="Avatar URL (opcional)"
-              value={form.avatar_url ?? ''}
-              onChange={e=>setForm(f=>({ ...f, avatar_url: e.target.value || null }))}
-            />
-            <div className="text-xs opacity-70">o sube un archivo desde tu computadora:</div>
-            <AvatarUploader
-              value={form.avatar_url ?? ''}
-              slugHint={form.slug || 'tmp'}
-              onUploaded={(url) => setForm((f) => ({ ...f, avatar_url: url }))}
-            />
-          </div>
-
+          <input className="p-3 rounded bg-slate-900 border border-slate-700 md:col-span-2" placeholder="Avatar URL" value={form.avatar_url ?? ''} onChange={e=>setForm(f=>({ ...f, avatar_url: e.target.value || null }))} />
           <input className="p-3 rounded bg-slate-900 border border-slate-700 md:col-span-2" placeholder="Sitio (https://...)" value={form.socials_site ?? ''} onChange={e=>setForm(f=>({ ...f, socials_site: e.target.value || null }))} />
 
           {/* Control de PIN */}
@@ -245,7 +228,7 @@ export default function AdminProfiles() {
               <th className="p-2">Acciones</th>
             </tr>
           </thead>
-          <tbody>
+        <tbody>
             {loading ? (
               <tr><td colSpan={6} className="p-3">Cargando…</td></tr>
             ) : rows.length === 0 ? (
