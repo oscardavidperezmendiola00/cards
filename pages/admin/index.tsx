@@ -1,10 +1,11 @@
 import type { GetServerSideProps } from 'next';
-import { isAdminFromSsr } from '@/lib/auth';        // cambia a ruta relativa si no usas "@"
+import { isAdminFromSsr } from '@/lib/auth';
 import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import type { DayRow } from '@/components/StackedBars';
 
-// Carga cliente de los charts (sin SSR)
+// Carga charts solo en cliente (sin SSR)
 const StackedBars = dynamic(() => import('@/components/StackedBars'), { ssr: false });
 const PieActions  = dynamic(() => import('@/components/PieActions'),  { ssr: false });
 
@@ -20,74 +21,77 @@ type Stats = {
 type Row = { id: string; slug: string; name: string };
 
 const ACTION_KEYS = ['view', 'btn:whatsapp', 'btn:email', 'btn:phone', 'btn:site'] as const;
+type ActionKey = (typeof ACTION_KEYS)[number];
 
-function makeSeries(byDay: Stats['byDay']) {
-  const days = Object.keys(byDay).sort();
-  return days.map(d => {
-    const m = byDay[d] || {};
-    const obj: Record<string, number | string> = { date: d };
-    let total = 0;
-    for (const k of ACTION_KEYS) {
-      const v = m[k] ?? 0;
-      obj[k] = v;
-      total += v;
-    }
-    obj.total = total;
-    return obj;
-  });
-}
+type ClickItem = {
+  ts?: string | null;
+  created_at?: string | null;
+  action: ActionKey | string;
+  slug?: string | null;
+};
 
-export default function AdminHome() {
+export default function AdminDashboard() {
   const [profiles, setProfiles] = useState<Row[]>([]);
   const [slug, setSlug] = useState<string>('ALL');
   const [stats, setStats] = useState<Stats | null>(null);
-  const [recent, setRecent] = useState<Array<{ ts: string; action: string; slug: string; ref: string | null; country: string | null; device: string | null }>>([]);
+  const [recent, setRecent] = useState<ClickItem[]>([]); // 👈 sin any
 
   // cargar lista de perfiles
   useEffect(() => {
     fetch('/api/admin/profiles')
-      .then(r => r.json())
-      .then(j => setProfiles(j.data || []))
+      .then((r) => r.json())
+      .then((j) => setProfiles(j.data || []))
       .catch(() => setProfiles([]));
   }, []);
 
   // cargar stats y últimos clics según filtro
   useEffect(() => {
     const qs = slug === 'ALL' ? '' : `?slug=${encodeURIComponent(slug)}`;
-    fetch(`/api/stats${qs}`).then(r => r.json()).then(setStats).catch(()=>setStats(null));
-    fetch(`/api/admin/clicks${qs}&limit=100`).then(r => r.json()).then(j => setRecent(j.data || [])).catch(()=>setRecent([]));
+    fetch(`/api/stats${qs}`)
+      .then((r) => r.json())
+      .then(setStats)
+      .catch(() => setStats(null));
+
+    fetch(`/api/admin/clicks${qs}&limit=100`)
+      .then((r) => r.json() as Promise<{ data?: ClickItem[] }>) // 👈 tipado de la respuesta
+      .then((j) => setRecent(j.data ?? []))
+      .catch(() => setRecent([]));
   }, [slug]);
 
-  const series = useMemo(() => (stats ? makeSeries(stats.byDay) : []), [stats]);
+  // Serie tipada para el gráfico
+  const series = useMemo<DayRow[]>(
+    () => (stats ? makeSeries(stats.byDay) : []),
+    [stats]
+  );
 
   const pieData = useMemo(() => {
     if (!stats) return [];
     return Object.keys(stats.totals)
-      .map(name => ({ name, value: stats.totals[name] ?? 0 }))
-      .filter(d => d.value > 0);
+      .map((name) => ({ name, value: stats.totals[name] ?? 0 }))
+      .filter((d) => d.value > 0);
   }, [stats]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-6">
       <header className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
-<nav className="flex gap-4 text-sm opacity-80">
-  <Link href="/admin/profiles" className="underline-offset-2 hover:underline">Perfiles</Link>
-  <Link href="/api/admin/logout" className="underline-offset-2 hover:underline">Salir</Link>
-</nav>
+        <nav className="flex gap-4 text-sm opacity-80">
+          <Link href="/admin/profiles" className="underline-offset-2 hover:underline">Perfiles</Link>
+          <Link href="/api/admin/logout" className="underline-offset-2 hover:underline">Salir</Link>
+        </nav>
       </header>
 
       {/* Filtro */}
       <section className="bg-black/40 p-4 rounded-xl mb-6 flex items-center gap-3">
         <label className="text-sm opacity-80">Ver estadísticas de:</label>
         <select
-          className="p-2 rounded bg-slate-900 border border-slate-700"
+          className="bg-black/50 border border-white/10 rounded-md px-2 py-1"
           value={slug}
-          onChange={e => setSlug(e.target.value)}
+          onChange={(e) => setSlug(e.target.value)}
         >
           <option value="ALL">Todos</option>
-          {profiles.map(p => (
-            <option key={p.id} value={p.slug}>{p.name} — {p.slug}</option>
+          {profiles.map((p) => (
+            <option key={p.id} value={p.slug}>{p.name || p.slug}</option>
           ))}
         </select>
       </section>
@@ -104,7 +108,7 @@ export default function AdminHome() {
         <h2 className="font-medium">Actividad por día</h2>
         <div className="mt-4" style={{ width: '100%', height: 340 }}>
           {series.length === 0 ? (
-            <div className="opacity-70 text-sm">Aún no hay datos.</div>
+            <div className="opacity-70 text-sm">Sin datos.</div>
           ) : (
             <StackedBars data={series} />
           )}
@@ -126,30 +130,37 @@ export default function AdminHome() {
       {/* Últimos clics */}
       <section className="mt-8 bg-black/40 p-4 rounded-xl">
         <h2 className="font-medium mb-3">Últimos clics</h2>
-        <div className="overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="text-left opacity-70">
-              <tr><th>Fecha</th><th>Slug</th><th>Acción</th><th>País</th><th>Dispositivo</th><th>Ref</th></tr>
-            </thead>
-            <tbody>
-              {recent.length === 0 ? (
-                <tr><td colSpan={6} className="p-3 opacity-70">Sin registros</td></tr>
-              ) : recent.map((r, i) => (
-                <tr key={i} className="border-t border-slate-800">
-                  <td className="p-2">{new Date(r.ts).toLocaleString()}</td>
-                  <td className="p-2">{r.slug}</td>
-                  <td className="p-2">{r.action}</td>
-                  <td className="p-2">{r.country ?? '-'}</td>
-                  <td className="p-2">{r.device ?? '-'}</td>
-                  <td className="p-2 max-w-[340px] truncate" title={r.ref ?? ''}>{r.ref ?? '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ul className="text-sm space-y-2 max-h-[420px] overflow-auto pr-2">
+          {recent.map((r, i) => (
+            <li key={i} className="opacity-80">
+              <span className="opacity-60">
+                {(r.ts ?? r.created_at ?? '').slice(0, 19).replace('T', ' ')}
+              </span>
+              {' — '}
+              <span className="font-mono">{r.action}</span>
+              {r.slug ? <> — <code className="opacity-90">{r.slug}</code></> : null}
+            </li>
+          ))}
+          {recent.length === 0 && <li className="opacity-70">Sin registros.</li>}
+        </ul>
       </section>
     </main>
   );
+}
+
+// 🔧 Generador tipado para el gráfico
+function makeSeries(byDay: Stats['byDay']): DayRow[] {
+  const days = Object.keys(byDay).sort();
+  return days.map((d) => {
+    const m = byDay[d] || {};
+    const row: DayRow = { date: d };
+    for (const k of ACTION_KEYS) {
+      // asignación por clave conocida
+
+      row[k] = Number(m[k] ?? 0);
+    }
+    return row;
+  });
 }
 
 function Kpi({ title, value }: { title: string; value: number | string }) {

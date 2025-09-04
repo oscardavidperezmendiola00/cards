@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
+import type { DayRow } from '@/components/StackedBars'; // <- tipo del gráfico
 
 // Charts solo en cliente
 const StackedBars = dynamic(() => import('@/components/StackedBars'), { ssr: false });
@@ -35,6 +36,34 @@ type Stats = {
 };
 
 const ACTION_KEYS = ['view', 'btn:whatsapp', 'btn:email', 'btn:phone', 'btn:site'] as const;
+type ActionKey = (typeof ACTION_KEYS)[number];
+
+// --- SIN any: builder intermedio con claves seguras y "total" opcional
+type RowBuild = { date: string } & Partial<Record<ActionKey, number>> & { total?: number };
+
+// makeSeries ahora devuelve exactamente DayRow[], sin usar `any`
+function makeSeries(byDay: Stats['byDay']): DayRow[] {
+  const days = Object.keys(byDay).sort();
+
+  return days.map((d) => {
+    const m = byDay[d] || {};
+
+    // construimos las entradas tipadas para las acciones
+    const actionEntries = ACTION_KEYS.map((k) => [k, Number(m[k] ?? 0)] as const);
+    const actionsObj: Partial<Record<ActionKey, number>> = Object.fromEntries(actionEntries);
+
+    const total = ACTION_KEYS.reduce((acc, k) => acc + Number(m[k] ?? 0), 0);
+
+    // row intermedio con tipos estrictos (incluye total por si lo usas en otro lado)
+    const rowBuild: RowBuild = { date: d, ...actionsObj, total };
+
+    // adaptamos al tipo que espera el componente (no any)
+    const { date, ...rest } = rowBuild;
+    const dayRow: DayRow = { date, ...(rest as Record<string, number>) };
+
+    return dayRow;
+  });
+}
 
 type ProfilePatch = {
   name: string;
@@ -52,22 +81,6 @@ type UpdateRequest = {
   pin: string;
   patch: ProfilePatch;
 };
-
-function makeSeries(byDay: Stats['byDay']) {
-  const days = Object.keys(byDay).sort();
-  return days.map(d => {
-    const m = byDay[d] || {};
-    const obj: Record<string, number | string> = { date: d };
-    let total = 0;
-    for (const k of ACTION_KEYS) {
-      const v = m[k] ?? 0;
-      obj[k] = v;
-      total += v;
-    }
-    obj.total = total;
-    return obj;
-  });
-}
 
 export default function ClienteSlug() {
   const router = useRouter();
@@ -116,12 +129,17 @@ export default function ClienteSlug() {
     })();
   }, [slug]);
 
-  const series = useMemo(() => (stats ? makeSeries(stats.byDay) : []), [stats]);
+  // ⬇️ Tipado correcto para el gráfico (DayRow[])
+  const series = useMemo<DayRow[]>(
+    () => (stats ? makeSeries(stats.byDay) : []),
+    [stats]
+  );
+
   const pieData = useMemo(() => {
     if (!stats) return [];
     return Object.keys(stats.totals)
-      .map(name => ({ name, value: stats.totals[name] ?? 0 }))
-      .filter(d => d.value > 0);
+      .map((name) => ({ name, value: stats.totals[name] ?? 0 }))
+      .filter((d) => d.value > 0);
   }, [stats]);
 
   async function onSave(e: React.FormEvent) {
