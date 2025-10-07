@@ -206,6 +206,12 @@ export default function ClienteSlug() {
             {pieData.length ? <PieActions data={pieData} /> : <div className="opacity-70 text-sm">Sin datos.</div>}
           </div>
         </section>
+<Link
+  href={`/cliente/${slug}/tarjeta${pin ? `?pin=${encodeURIComponent(String(pin))}` : ''}`}
+  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500 text-slate-900 font-medium mt-4"
+>
+  Crear tarjeta física
+</Link>
 
         {/* Preview + acciones */}
         <section className="lg:col-span-2 bg-black/40 rounded-2xl p-5">

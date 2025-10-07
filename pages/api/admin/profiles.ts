@@ -1,6 +1,9 @@
+// /pages/api/admin/profiles.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseAdmin } from '@/lib/db';
 import { isAdminFromApi } from '@/lib/auth';
+
+type ApiData<T = unknown> = { ok: boolean; error?: string; data?: T };
 
 type SocialsJson = { site?: string } | null;
 
@@ -16,7 +19,7 @@ type ProfileRow = {
   whatsapp?: string | null;
   avatar_url?: string | null;
   socials_json?: SocialsJson;
-  edit_pin?: string | null; // PIN de edición (opcional)
+  edit_pin?: string | null;
 };
 
 type ListRow = {
@@ -41,7 +44,6 @@ async function resolveOwnerId(
   const email = process.env.ADMIN_OWNER_EMAIL;
   if (!email) return null;
 
-  // sin genéricos; casteamos el resultado
   const { data: owner } = await supabase
     .from('owners')
     .select('id')
@@ -60,12 +62,17 @@ async function resolveOwnerId(
   return (created as OwnerRow).id;
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (!isAdminFromApi(req)) return res.status(401).json({ ok: false, error: 'unauthorized' });
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<ApiData>
+): Promise<void> {
+  if (!isAdminFromApi(req)) {
+    res.status(401).json({ ok: false, error: 'unauthorized' });
+    return;
+  }
 
   const supabase = getSupabaseAdmin();
 
-  // GET: listado (incluye edit_pin para vista de admin)
   if (req.method === 'GET') {
     const { search } = req.query as { search?: string };
     const q = supabase
@@ -75,22 +82,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .limit(500);
 
     const { data, error } = search?.trim() ? await q.ilike('name', `%${search}%`) : await q;
-    if (error) return res.status(400).json({ ok: false, error: error.message });
+    if (error) {
+      res.status(400).json({ ok: false, error: error.message });
+      return;
+    }
 
     const rows = (data ?? []) as ListRow[];
-    return res.json({ ok: true, data: rows });
+    res.status(200).json({ ok: true, data: rows });
+    return;
   }
 
-  // POST: crear perfil
   if (req.method === 'POST') {
     const body = req.body as ProfileRow;
 
     if (!body.slug?.trim() || !body.name?.trim()) {
-      return res.status(400).json({ ok: false, error: 'slug y name son requeridos' });
+      res.status(400).json({ ok: false, error: 'slug y name son requeridos' });
+      return;
     }
 
     const ownerId = await resolveOwnerId(supabase, body.owner_id ?? null);
-    if (!ownerId) return res.status(400).json({ ok: false, error: 'owner_id no resuelto (configura ADMIN_OWNER_EMAIL)' });
+    if (!ownerId) {
+      res.status(400).json({ ok: false, error: 'owner_id no resuelto (configura ADMIN_OWNER_EMAIL)' });
+      return;
+    }
 
     const insertObj: ProfileRow = {
       owner_id: ownerId,
@@ -103,19 +117,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       whatsapp: body.whatsapp ?? null,
       avatar_url: body.avatar_url ?? null,
       socials_json: body.socials_json ?? null,
-      edit_pin: body.edit_pin ?? null, // permite crear con PIN
+      edit_pin: body.edit_pin ?? null,
     };
 
     const { error } = await supabase.from('profiles').insert(insertObj);
-    if (error) return res.status(400).json({ ok: false, error: error.message });
+    if (error) {
+      res.status(400).json({ ok: false, error: error.message });
+      return;
+    }
 
-    return res.json({ ok: true });
+    res.status(201).json({ ok: true });
+    return;
   }
 
-  // PUT: actualizar perfil (incluye set/quitar PIN)
   if (req.method === 'PUT') {
     const body = req.body as ProfileRow;
-    if (!body.id) return res.status(400).json({ ok: false, error: 'id requerido' });
+    if (!body.id) {
+      res.status(400).json({ ok: false, error: 'id requerido' });
+      return;
+    }
 
     const patch: Partial<ProfileRow> = {
       slug: body.slug?.trim(),
@@ -127,30 +147,40 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       whatsapp: body.whatsapp ?? null,
       avatar_url: body.avatar_url ?? null,
       socials_json: body.socials_json ?? null,
-      edit_pin: body.edit_pin ?? null, // set/quitar PIN
+      edit_pin: body.edit_pin ?? null,
     };
 
-    // Filtra solo propiedades definidas (sin usar `any`)
     const cleanPatch = Object.fromEntries(
       Object.entries(patch).filter(([, v]) => v !== undefined)
     ) as Partial<ProfileRow>;
 
     const { error } = await supabase.from('profiles').update(cleanPatch).eq('id', body.id);
-    if (error) return res.status(400).json({ ok: false, error: error.message });
+    if (error) {
+      res.status(400).json({ ok: false, error: error.message });
+      return;
+    }
 
-    return res.json({ ok: true });
+    res.status(200).json({ ok: true });
+    return;
   }
 
-  // DELETE: eliminar perfil
   if (req.method === 'DELETE') {
     const { id } = req.query as { id?: string };
-    if (!id) return res.status(400).json({ ok: false, error: 'id requerido' });
+    if (!id) {
+      res.status(400).json({ ok: false, error: 'id requerido' });
+      return;
+    }
 
     const { error } = await supabase.from('profiles').delete().eq('id', id);
-    if (error) return res.status(400).json({ ok: false, error: error.message });
+    if (error) {
+      res.status(400).json({ ok: false, error: error.message });
+      return;
+    }
 
-    return res.json({ ok: true });
+    res.status(200).json({ ok: true });
+    return;
   }
 
-  return res.status(405).end();
+  res.setHeader('Allow', 'GET, POST, PUT, DELETE');
+  res.status(405).end();
 }
