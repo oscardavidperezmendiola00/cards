@@ -76,9 +76,12 @@ export default function AdminDashboard() {
       <header className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         <nav className="flex gap-4 text-sm opacity-80">
-          <Link href="/admin/profiles" className="underline-offset-2 hover:underline">Perfiles</Link>
-          <Link href="/api/admin/logout" className="underline-offset-2 hover:underline">Salir</Link>
-        </nav>
+  <Link href="/admin/profiles" className="underline-offset-2 hover:underline">Perfiles</Link>
+  <Link href="/admin/orders" className="underline-offset-2 hover:underline">Pedidos</Link>
+  <Link href="/admin/designs" className="underline-offset-2 hover:underline">Diseños</Link>
+  <Link href="/api/admin/logout" className="underline-offset-2 hover:underline">Salir</Link>
+</nav>
+
       </header>
 
       {/* Filtro */}
