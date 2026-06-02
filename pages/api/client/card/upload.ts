@@ -5,7 +5,6 @@ import fs from 'fs';
 import path from 'path';
 
 // Mantener desactivado para multipart/form-data
-export const config = { api: { bodyParser: false } } as const;
 
 /* -------- Tipos de formidable -------- */
 import type {
